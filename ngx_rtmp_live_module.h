@@ -52,8 +52,11 @@ struct ngx_rtmp_live_stream_s {
     ngx_rtmp_bandwidth_t                bw_in_video;
     ngx_rtmp_bandwidth_t                bw_out;
     ngx_msec_t                          epoch;
+    ngx_event_t                         reconnect_evt;
     unsigned                            active:1;
     unsigned                            publishing:1;
+    unsigned                            publisher_disconnected:1;
+    unsigned                            keep_subscribers:1;
 };
 
 
@@ -71,6 +74,8 @@ typedef struct {
     ngx_flag_t                          publish_notify;
     ngx_flag_t                          play_restart;
     ngx_flag_t                          idle_streams;
+    ngx_flag_t                          keep_connections;
+    ngx_msec_t                          reconnect_timeout;
     ngx_msec_t                          buflen;
     ngx_pool_t                         *pool;
     ngx_rtmp_live_stream_t             *free_streams;

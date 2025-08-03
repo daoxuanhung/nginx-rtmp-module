@@ -8,6 +8,7 @@
 #include <ngx_core.h>
 #include "ngx_rtmp_cmd_module.h"
 #include "ngx_rtmp_streams.h"
+#include "ngx_rtmp_live_module.h"
 
 
 #define NGX_RTMP_FMS_VERSION        "FMS/3,0,1,123"
@@ -395,6 +396,8 @@ ngx_rtmp_cmd_close_stream_init(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
                                ngx_chain_t *in)
 {
     static ngx_rtmp_close_stream_t     v;
+    ngx_rtmp_live_app_conf_t          *lacf;
+    ngx_rtmp_live_ctx_t               *ctx;
 
     static ngx_rtmp_amf_elt_t  in_elts[] = {
 
@@ -410,6 +413,17 @@ ngx_rtmp_cmd_close_stream_init(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     ngx_log_error(NGX_LOG_INFO, s->connection->log, 0, "closeStream");
+
+    /* Check if we should keep subscriber connections */
+    lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
+    if (lacf && lacf->keep_connections) {
+        ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
+        if (ctx && ctx->stream && ctx->stream->keep_subscribers && !ctx->publishing) {
+            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "live: ignoring closeStream for subscriber in keep_connections mode");
+            return NGX_OK;
+        }
+    }
 
     return ngx_rtmp_close_stream(s, &v);
 }
@@ -457,8 +471,21 @@ static ngx_int_t
 ngx_rtmp_cmd_delete_stream(ngx_rtmp_session_t *s, ngx_rtmp_delete_stream_t *v)
 {
     ngx_rtmp_close_stream_t         cv;
+    ngx_rtmp_live_app_conf_t       *lacf;
+    ngx_rtmp_live_ctx_t            *ctx;
 
     ngx_log_error(NGX_LOG_INFO, s->connection->log, 0, "deleteStream");
+
+    /* Check if we should keep subscriber connections */
+    lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
+    if (lacf && lacf->keep_connections) {
+        ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
+        if (ctx && ctx->stream && ctx->stream->keep_subscribers && !ctx->publishing) {
+            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "live: ignoring deleteStream for subscriber in keep_connections mode");
+            return NGX_OK;
+        }
+    }
 
     cv.stream = 0;
 
