@@ -16,8 +16,8 @@ rtmp {
             # Bật tính năng giữ kết nối subscriber
             keep_connections on;
             
-            # Thời gian chờ publisher kết nối lại (mặc định: 30000ms = 30s)
-            reconnect_timeout 30000ms;
+            # Thời gian chờ publisher kết nối lại (mặc định: 30s, có thể dùng s/ms)
+            reconnect_timeout 30s;
             
             # Các cấu hình khác...
         }
@@ -64,3 +64,33 @@ Tính năng này tương thích với:
 - FFmpeg subscribers
 - Các RTMP clients khác
 - Existing nginx-rtmp-module configurations
+
+## Testing
+
+Để test tính năng này:
+
+1. **Setup publisher**: 
+   ```bash
+   ffmpeg -f lavfi -i testsrc -c:v libx264 -f flv rtmp://localhost/live/test
+   ```
+
+2. **Setup subscriber**:
+   ```bash
+   ffmpeg -i rtmp://localhost/live/test -c copy output.flv
+   ```
+
+3. **Test disconnect**: Dừng publisher (Ctrl+C) và quan sát subscriber không bị ngắt kết nối
+
+4. **Test reconnect**: Khởi động lại publisher với cùng stream name và quan sát subscriber tiếp tục nhận dữ liệu
+
+## Debug
+
+Để debug, bật nginx error log level:
+```nginx
+error_log /var/log/nginx/error.log debug;
+```
+
+Tìm các log messages:
+- `live: publisher disconnected, keeping subscribers`
+- `live: publisher reconnected, canceling reconnect timeout`
+- `live: reconnect timeout for stream`
