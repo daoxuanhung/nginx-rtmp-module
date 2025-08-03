@@ -428,6 +428,10 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
 
                 ngx_add_timer(e, lacf->reconnect_timeout);
             }
+            
+            /* Important: Set flags BEFORE processing subscribers */
+            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "live: keep_subscribers flag set, skipping EOF for all subscribers");
         }
 
         for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
@@ -796,7 +800,10 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
     }
 
     if (ctx->publishing || ctx->stream->active) {
-        ngx_rtmp_live_stop(s);
+        /* Only call ngx_rtmp_live_stop if we're not in keep_connections mode for publisher */
+        if (!(ctx->publishing && lacf->keep_connections && lacf->reconnect_timeout > 0)) {
+            ngx_rtmp_live_stop(s);
+        }
     }
 
     if (ctx->publishing) {
@@ -808,16 +815,7 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
             ngx_del_timer(&ctx->stream->reconnect_evt);
         }
         
-        if (!lacf->idle_streams && !lacf->keep_connections) {
-            for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
-                if (pctx->publishing == 0) {
-                    ss = pctx->session;
-                    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
-                                   "live: no publisher");
-                    ngx_rtmp_finalize_session(ss);
-                }
-            }
-        } else if (lacf->keep_connections && lacf->reconnect_timeout > 0) {
+        if (lacf->keep_connections && lacf->reconnect_timeout > 0) {
             /* Set up for keeping subscribers during publisher disconnect */
             ctx->stream->publisher_disconnected = 1;
             ctx->stream->keep_subscribers = 1;
@@ -834,6 +832,15 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
                 s->connection->data = ctx->stream;
 
                 ngx_add_timer(&ctx->stream->reconnect_evt, lacf->reconnect_timeout);
+            }
+        } else if (!lacf->idle_streams) {
+            for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
+                if (pctx->publishing == 0) {
+                    ss = pctx->session;
+                    ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
+                                   "live: no publisher");
+                    ngx_rtmp_finalize_session(ss);
+                }
             }
         }
     }
