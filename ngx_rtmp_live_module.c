@@ -29,6 +29,7 @@ static char *ngx_rtmp_live_set_msec_slot(ngx_conf_t *cf, ngx_command_t *cmd,
 static void ngx_rtmp_live_idle(ngx_event_t *pev);
 static void ngx_rtmp_live_reconnect_timeout(ngx_event_t *pev);
 static void ngx_rtmp_live_restart_subscribers(ngx_rtmp_live_stream_t *stream);
+static ngx_int_t ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s);
 static ngx_int_t ngx_rtmp_live_disconnect_init(ngx_rtmp_session_t *s, 
                                                ngx_rtmp_header_t *h, 
                                                ngx_chain_t *in);
@@ -606,14 +607,6 @@ next:
 
 
 static ngx_int_t
-ngx_rtmp_live_disconnect_init(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
-                              ngx_chain_t *in)
-{
-    return ngx_rtmp_live_disconnect(s);
-}
-
-
-static ngx_int_t
 ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s)
 {
     ngx_rtmp_live_app_conf_t       *lacf;
@@ -655,6 +648,14 @@ ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s)
 
 next:
     return next_disconnect(s);
+}
+
+
+static ngx_int_t
+ngx_rtmp_live_disconnect_init(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
+                              ngx_chain_t *in)
+{
+    return ngx_rtmp_live_disconnect(s);
 }
 
 
