@@ -1,0 +1,69 @@
+--- a/ngx_rtmp_live_module.c
++++ b/ngx_rtmp_live_module.c
+@@ -300,17 +300,22 @@ ngx_rtmp_live_restart_subscribers(ngx_rtmp_live_stream_t *stream)
+ 
+     /* Restart all subscribers */
+     for (pctx = stream->ctx; pctx; pctx = pctx->next) {
+-        if (pctx->publishing == 0) {
++        if (pctx->publishing == 0 && pctx->session) {
+             ss = pctx->session;
+-            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
+-                           "live: restarting subscriber");
+-            ngx_rtmp_live_start(ss);
++            if (ss->connection) {
++                ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
++                               "live: restarting subscriber");
++                ngx_rtmp_live_start(ss);
++            }
+         }
+     }
+ }
+ 
++/* Add additional null pointer checks throughout the module to prevent crashes */
++
+ static ngx_rtmp_live_stream_t **
+ ngx_rtmp_live_get_stream(ngx_rtmp_session_t *s, u_char *name, int create)
+ {
++    /* Add bounds checking for stream bucket access */
+     ngx_rtmp_live_app_conf_t   *lacf;
+     ngx_rtmp_live_stream_t    **stream;
+     size_t                      len;
+@@ -320,6 +325,11 @@ ngx_rtmp_live_get_stream(ngx_rtmp_session_t *s, u_char *name, int create)
+         return NULL;
+     }
+ 
++    /* Prevent potential buffer overflow in stream name */
++    if (name == NULL) {
++        return NULL;
++    }
++
+     len = ngx_strlen(name);
+     stream = &lacf->streams[ngx_hash_key(name, len) % lacf->nbuckets];
+ 
+@@ -540,7 +550,7 @@ ngx_rtmp_live_stop(ngx_rtmp_session_t *s)
+     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
+ 
+     /* Don't send stream EOF to subscribers if we're keeping connections */
+-    if (!ctx->publishing && lacf && lacf->keep_connections && 
++    if (ctx && !ctx->publishing && lacf && lacf->keep_connections && 
+         ctx->stream && ctx->stream->keep_subscribers) {
+         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                        "live: skipping stream EOF for subscriber in keep_connections mode");
+@@ -1090,11 +1100,16 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
+     /* broadcast to all subscribers */
+ 
+     for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
+-        if (pctx == ctx || pctx->paused) {
++        if (pctx == ctx || pctx->paused || !pctx->session) {
+             continue;
+         }
+ 
+         ss = pctx->session;
++        
++        /* Skip if session connection is invalid */
++        if (!ss->connection) {
++            continue;
++        }
+         cs = &pctx->cs[csidx];
+ 
+         /* send metadata */
