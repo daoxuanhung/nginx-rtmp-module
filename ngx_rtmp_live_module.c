@@ -454,8 +454,22 @@ ngx_rtmp_live_idle(ngx_event_t *pev)
         return;
     }
 
-    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                  "live: drop idle publisher, session=%p, stream='%s'", 
+    /* Double check - if stream is still active or has activity, don't drop */
+    if (ctx->stream && ctx->stream->active) {
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: idle timer - stream is still active, not dropping publisher");
+        return;
+    }
+
+    /* Check if connection is still valid */
+    if (!s->connection) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: idle timer - connection already invalid");
+        return;
+    }
+
+    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                  "live: dropping idle publisher after timeout, session=%p, stream='%s'", 
                   s, ctx->stream ? (char*)ctx->stream->name : "unknown");
 
     ngx_rtmp_finalize_session(s);
@@ -1298,8 +1312,17 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
     }
 
     if (ctx->idle_evt.timer_set) {
-        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
-                       "live: av resetting idle timer for %dms", lacf->idle_timeout);
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: av resetting existing idle timer for %M ms", lacf->idle_timeout);
+        ngx_add_timer(&ctx->idle_evt, lacf->idle_timeout);
+    } else if (lacf->idle_timeout > 0) {
+        /* Timer not set, create it */
+        ctx->idle_evt.data = s->connection;
+        ctx->idle_evt.log = s->connection->log;
+        ctx->idle_evt.handler = ngx_rtmp_live_idle;
+        
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: av creating new idle timer for %M ms", lacf->idle_timeout);
         ngx_add_timer(&ctx->idle_evt, lacf->idle_timeout);
     }
 
