@@ -513,7 +513,7 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
                     }
                     continue;
                 }
-                ngx_log_debug2(NGX_LOG_DEBUG_RTMP, pctx->session->connection->log, 0,
+                ngx_log_debug1(NGX_LOG_DEBUG_RTMP, pctx->session->connection->log, 0,
                                "live: setting subscriber status active=%ui for stream",
                                active);
                 ngx_rtmp_live_set_status(pctx->session, control, status,
@@ -1487,7 +1487,7 @@ ngx_rtmp_live_publish(ngx_rtmp_session_t *s, ngx_rtmp_publish_t *v)
     if (!ctx->silent) {
         ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
                       "live: publish started successfully for stream '%s'",
-                      ctx->stream ? ctx->stream->name : "unknown");
+                      ctx->stream ? (char*)ctx->stream->name : "unknown");
         
         ngx_rtmp_send_status(s, "NetStream.Publish.Start",
                              "status", "Start publishing");
@@ -1537,7 +1537,7 @@ ngx_rtmp_live_play(ngx_rtmp_session_t *s, ngx_rtmp_play_t *v)
     if (!ctx->silent && !lacf->play_restart) {
         ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
                       "live: play started successfully for stream '%s'",
-                      ctx->stream ? ctx->stream->name : "unknown");
+                      ctx->stream ? (char*)ctx->stream->name : "unknown");
         
         ngx_rtmp_send_status(s, "NetStream.Play.Start",
                              "status", "Start live");
