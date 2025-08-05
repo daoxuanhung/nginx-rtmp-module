@@ -364,9 +364,25 @@ ngx_rtmp_live_idle(ngx_event_t *pev)
 {
     ngx_connection_t           *c;
     ngx_rtmp_session_t         *s;
+    ngx_rtmp_live_ctx_t        *ctx;
 
     c = pev->data;
+    if (c == NULL) {
+        return;
+    }
+    
     s = c->data;
+    if (s == NULL) {
+        return;
+    }
+
+    ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
+    if (ctx == NULL || !ctx->publishing) {
+        /* Only drop idle publishers, not subscribers */
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: idle timer called for non-publisher, ignoring");
+        return;
+    }
 
     ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                   "live: drop idle publisher");
@@ -644,6 +660,11 @@ ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s)
 
     stream = ctx->stream;
 
+    /* Clean up idle timer for any session (publisher or subscriber) */
+    if (ctx->idle_evt.timer_set) {
+        ngx_del_timer(&ctx->idle_evt);
+    }
+
     /* Handle publisher disconnect when keep_connections is enabled */
     if (ctx->publishing && lacf->keep_connections && lacf->reconnect_timeout > 0 && s->connection) {
         ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
@@ -824,6 +845,11 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
     if (ctx->publishing) {
         ngx_rtmp_send_status(s, "NetStream.Unpublish.Success",
                              "status", "Stop publishing");
+        
+        /* Cancel idle timer if it's set */
+        if (ctx->idle_evt.timer_set) {
+            ngx_del_timer(&ctx->idle_evt);
+        }
         
         /* Cancel reconnect timer if it's set */
         if (ctx->stream->reconnect_evt.timer_set) {
