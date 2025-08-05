@@ -256,9 +256,15 @@ ngx_rtmp_live_reconnect_timeout(ngx_event_t *pev)
     stream = c->data;
 
     if (stream == NULL) {
+        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
+                      "live: reconnect timeout called with NULL stream");
         return;
     }
 
+    ngx_log_error(NGX_LOG_WARN, c->log, 0,
+                  "live: reconnect timeout expired for stream '%s', closing all subscribers", 
+                  stream->name);
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, c->log, 0,
                    "live: reconnect timeout for stream '%s'", stream->name);
 
@@ -268,6 +274,9 @@ ngx_rtmp_live_reconnect_timeout(ngx_event_t *pev)
         if (pctx->publishing == 0 && pctx->session) {
             ss = pctx->session;
             if (ss->connection) {
+                ngx_log_error(NGX_LOG_WARN, ss->connection->log, 0,
+                              "live: closing subscriber connection due to publisher reconnect timeout for stream '%s'",
+                              stream->name);
                 ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
                                "live: closing subscriber after reconnect timeout");
                 ngx_rtmp_finalize_session(ss);
@@ -277,6 +286,10 @@ ngx_rtmp_live_reconnect_timeout(ngx_event_t *pev)
 
     stream->publisher_disconnected = 0;
     stream->keep_subscribers = 0;
+    
+    ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                  "live: stream '%s' marked as inactive, publisher reconnect timeout completed",
+                  stream->name);
 }
 
 
@@ -287,9 +300,15 @@ ngx_rtmp_live_restart_subscribers(ngx_rtmp_live_stream_t *stream)
     ngx_rtmp_session_t             *ss;
 
     if (stream == NULL || !stream->active) {
+        ngx_log_error(NGX_LOG_WARN, ngx_cycle->log, 0,
+                      "live: cannot restart subscribers - stream is NULL or inactive");
         return;
     }
 
+    ngx_log_error(NGX_LOG_INFO, ngx_cycle->log, 0,
+                  "live: restarting subscribers for stream '%s' after publisher reconnection", 
+                  stream->name);
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, ngx_cycle->log, 0,
                    "live: restarting subscribers for stream '%s'", stream->name);
 
@@ -298,6 +317,9 @@ ngx_rtmp_live_restart_subscribers(ngx_rtmp_live_stream_t *stream)
         if (pctx->publishing == 0 && pctx->session) {
             ss = pctx->session;
             if (ss->connection) {
+                ngx_log_error(NGX_LOG_INFO, ss->connection->log, 0,
+                              "live: restarting subscriber connection for stream '%s'",
+                              stream->name);
                 ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
                                "live: restarting subscriber");
                 ngx_rtmp_live_start(ss);
@@ -338,9 +360,14 @@ ngx_rtmp_live_get_stream(ngx_rtmp_session_t *s, u_char *name, int create)
     }
 
     if (!create) {
+        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: stream '%s' not found and create=0", name);
         return NULL;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: creating new stream '%s'", name);
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
             "live: create stream '%s'", name);
 
@@ -384,6 +411,9 @@ ngx_rtmp_live_idle(ngx_event_t *pev)
         return;
     }
 
+    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                  "live: dropping idle publisher - no data received within timeout period");
+
     ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                   "live: drop idle publisher");
 
@@ -415,6 +445,10 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
         return;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: changing stream state from active=%ui to active=%ui",
+                  ctx->active, active);
+
     ctx->active = active;
 
     if (ctx->publishing) {
@@ -443,6 +477,10 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
             ctx->stream->publisher_disconnected = 1;
             ctx->stream->keep_subscribers = 1;
             
+            ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                          "live: publisher becoming inactive, enabling keep_connections mode for %M ms",
+                          lacf->reconnect_timeout);
+            
             ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                            "live: publisher disconnected, keeping subscribers for %M ms",
                            lacf->reconnect_timeout);
@@ -468,11 +506,16 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
                 /* Skip setting status for subscribers if we're keeping connections */
                 if (!active && lacf->keep_connections && ctx->stream->keep_subscribers) {
                     if (pctx->session->connection) {
+                        ngx_log_error(NGX_LOG_INFO, pctx->session->connection->log, 0,
+                                      "live: keeping subscriber connection active during publisher disconnect");
                         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, pctx->session->connection->log, 0,
                                        "live: keeping subscriber connection");
                     }
                     continue;
                 }
+                ngx_log_debug2(NGX_LOG_DEBUG_RTMP, pctx->session->connection->log, 0,
+                               "live: setting subscriber status active=%ui for stream",
+                               active);
                 ngx_rtmp_live_set_status(pctx->session, control, status,
                                          nstatus, active);
             }
@@ -483,7 +526,13 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
 
     /* subscriber */
 
+    ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                   "live: setting subscriber status - control=%p, active=%ui",
+                   control, active);
+
     if (control && ngx_rtmp_send_message(s, control, 0) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                      "live: failed to send control message to subscriber, terminating");
         ngx_rtmp_finalize_session(s);
         return;
     }
@@ -493,6 +542,8 @@ ngx_rtmp_live_set_status(ngx_rtmp_session_t *s, ngx_chain_t *control,
 
         for (n = 0; n < nstatus; ++n, ++cl) {
             if (*cl && ngx_rtmp_send_message(s, *cl, 0) != NGX_OK) {
+                ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                              "live: failed to send status message %d to subscriber, terminating", n);
                 ngx_rtmp_finalize_session(s);
                 return;
             }
@@ -515,6 +566,9 @@ ngx_rtmp_live_start(ngx_rtmp_session_t *s)
     ngx_chain_t                *control;
     ngx_chain_t                *status[3];
     size_t                      n, nstatus;
+
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: starting live stream for session");
 
     cscf = ngx_rtmp_get_module_srv_conf(s, ngx_rtmp_core_module);
 
@@ -558,6 +612,9 @@ ngx_rtmp_live_stop(ngx_rtmp_session_t *s)
     ngx_chain_t                *status[3];
     size_t                      n, nstatus;
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: stopping live stream for session");
+
     cscf = ngx_rtmp_get_module_srv_conf(s, ngx_rtmp_core_module);
 
     lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
@@ -567,6 +624,8 @@ ngx_rtmp_live_stop(ngx_rtmp_session_t *s)
     /* Don't send stream EOF to subscribers if we're keeping connections */
     if (ctx && !ctx->publishing && lacf && lacf->keep_connections && 
         ctx->stream && ctx->stream->keep_subscribers) {
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: skipping stream EOF for subscriber in keep_connections mode");
         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                        "live: skipping stream EOF for subscriber in keep_connections mode");
         return;
@@ -607,9 +666,14 @@ ngx_rtmp_live_stream_begin(ngx_rtmp_session_t *s, ngx_rtmp_stream_begin_t *v)
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
 
     if (ctx == NULL || ctx->stream == NULL || !ctx->publishing) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: stream_begin - not a publisher, skipping");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: stream_begin received from publisher");
+    
     ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: stream_begin");
 
@@ -628,9 +692,14 @@ ngx_rtmp_live_stream_eof(ngx_rtmp_session_t *s, ngx_rtmp_stream_eof_t *v)
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
 
     if (ctx == NULL || ctx->stream == NULL || !ctx->publishing) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: stream_eof - not a publisher, skipping");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: stream_eof received from publisher");
+    
     ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: stream_eof");
 
@@ -650,15 +719,23 @@ ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s)
 
     lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
     if (lacf == NULL || !lacf->live) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: disconnect - live module not configured");
         goto next;
     }
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx == NULL || ctx->stream == NULL) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: disconnect - no context or stream");
         goto next;
     }
 
     stream = ctx->stream;
+
+    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                  "live: session disconnect for stream '%s', publishing=%d",
+                  stream->name, ctx->publishing);
 
     /* Clean up idle timer for any session (publisher or subscriber) */
     if (ctx->idle_evt.timer_set) {
@@ -667,6 +744,10 @@ ngx_rtmp_live_disconnect(ngx_rtmp_session_t *s)
 
     /* Handle publisher disconnect when keep_connections is enabled */
     if (ctx->publishing && lacf->keep_connections && lacf->reconnect_timeout > 0 && s->connection) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: publisher disconnect for stream '%s', enabling keep_connections mode for %M ms",
+                      stream->name, lacf->reconnect_timeout);
+        
         ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                        "live: publisher disconnect for stream '%s', enabling keep_connections",
                        stream->name);
@@ -713,6 +794,9 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx && ctx->stream) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: attempted to join while already joined to stream '%s'",
+                      ctx->stream->name);
         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                        "live: already joined");
         return;
@@ -727,6 +811,10 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
 
     ctx->session = s;
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: joining stream '%s' as %s", 
+                  name, publisher ? "publisher" : "subscriber");
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: join '%s'", name);
 
@@ -735,6 +823,12 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
     if (stream == NULL ||
         !(publisher || (*stream)->publishing || lacf->idle_streams))
     {
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                      "live: stream '%s' not found or not available - publisher=%d, stream_publishing=%d, idle_streams=%d",
+                      name, publisher, 
+                      stream ? (*stream)->publishing : 0,
+                      lacf->idle_streams);
+        
         ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                       "live: stream not found");
 
@@ -749,6 +843,9 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
     if (publisher) {
         if ((*stream)->publishing) {
             ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                          "live: stream '%s' already has a publisher", name);
+            
+            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                           "live: already publishing");
 
             ngx_rtmp_send_status(s, "NetStream.Publish.BadName", "error",
@@ -761,6 +858,10 @@ ngx_rtmp_live_join(ngx_rtmp_session_t *s, u_char *name, unsigned publisher)
         
         /* Handle publisher reconnection */
         if ((*stream)->publisher_disconnected && (*stream)->keep_subscribers) {
+            ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                          "live: publisher reconnected to stream '%s', restoring normal operation", 
+                          name);
+            
             ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                            "live: publisher reconnected, canceling reconnect timeout");
             
@@ -816,11 +917,17 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
     }
 
     if (ctx->stream == NULL) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: close_stream called but session not joined to any stream");
         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                        "live: not joined");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: leaving stream '%s', publishing=%d", 
+                  ctx->stream->name, ctx->publishing);
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: leave '%s'", ctx->stream->name);
 
@@ -843,6 +950,9 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
     }
 
     if (ctx->publishing) {
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: publisher closing for stream '%s'", ctx->stream->name);
+        
         ngx_rtmp_send_status(s, "NetStream.Unpublish.Success",
                              "status", "Stop publishing");
         
@@ -861,6 +971,10 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
             ctx->stream->publisher_disconnected = 1;
             ctx->stream->keep_subscribers = 1;
             
+            ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                          "live: publisher closing stream '%s', keeping subscribers for %M ms",
+                          ctx->stream->name, lacf->reconnect_timeout);
+            
             ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                            "live: publisher closing, keeping subscribers for %M ms",
                            lacf->reconnect_timeout);
@@ -875,10 +989,17 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
                 ngx_add_timer(&ctx->stream->reconnect_evt, lacf->reconnect_timeout);
             }
         } else if (!lacf->idle_streams) {
+            ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                          "live: publisher closed stream '%s', terminating all subscribers",
+                          ctx->stream->name);
+            
             for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
                 if (pctx->publishing == 0 && pctx->session) {
                     ss = pctx->session;
                     if (ss->connection) {
+                        ngx_log_error(NGX_LOG_INFO, ss->connection->log, 0,
+                                      "live: terminating subscriber - no publisher for stream '%s'",
+                                      ctx->stream->name);
                         ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
                                        "live: no publisher");
                         ngx_rtmp_finalize_session(ss);
@@ -893,6 +1014,10 @@ ngx_rtmp_live_close_stream(ngx_rtmp_session_t *s, ngx_rtmp_close_stream_t *v)
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: deleting empty stream '%s' - no more sessions",
+                  ctx->stream->name);
+    
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: delete empty stream '%s'",
                    ctx->stream->name);
@@ -929,9 +1054,15 @@ ngx_rtmp_live_pause(ngx_rtmp_session_t *s, ngx_rtmp_pause_t *v)
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
 
     if (ctx == NULL || ctx->stream == NULL) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: pause - no context or stream");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: pause=%i timestamp=%f for stream '%s'",
+                  (ngx_int_t) v->pause, v->position, ctx->stream->name);
+    
     ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: pause=%i timestamp=%f",
                    (ngx_int_t) v->pause, v->position);
@@ -1001,6 +1132,8 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx == NULL || ctx->stream == NULL) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: av packet received but no context or stream");
         return NGX_OK;
     }
 
@@ -1325,9 +1458,15 @@ ngx_rtmp_live_publish(ngx_rtmp_session_t *s, ngx_rtmp_publish_t *v)
     lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
 
     if (lacf == NULL || !lacf->live) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: publish - live module not enabled");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: publish request - name='%s' type='%s'",
+                  v->name, v->type);
+    
     ngx_log_debug2(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: publish: name='%s' type='%s'",
                    v->name, v->type);
@@ -1338,12 +1477,18 @@ ngx_rtmp_live_publish(ngx_rtmp_session_t *s, ngx_rtmp_publish_t *v)
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx == NULL || !ctx->publishing) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: publish failed - could not join as publisher");
         goto next;
     }
 
     ctx->silent = v->silent;
 
     if (!ctx->silent) {
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: publish started successfully for stream '%s'",
+                      ctx->stream ? ctx->stream->name : "unknown");
+        
         ngx_rtmp_send_status(s, "NetStream.Publish.Start",
                              "status", "Start publishing");
     }
@@ -1362,9 +1507,15 @@ ngx_rtmp_live_play(ngx_rtmp_session_t *s, ngx_rtmp_play_t *v)
     lacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_live_module);
 
     if (lacf == NULL || !lacf->live) {
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                       "live: play - live module not enabled");
         goto next;
     }
 
+    ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                  "live: play request - name='%s' start=%uD duration=%uD reset=%d",
+                  v->name, (uint32_t) v->start, (uint32_t) v->duration, (uint32_t) v->reset);
+    
     ngx_log_debug4(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "live: play: name='%s' start=%uD duration=%uD reset=%d",
                    v->name, (uint32_t) v->start,
@@ -1376,12 +1527,18 @@ ngx_rtmp_live_play(ngx_rtmp_session_t *s, ngx_rtmp_play_t *v)
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_live_module);
     if (ctx == NULL) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                      "live: play failed - could not join as subscriber");
         goto next;
     }
 
     ctx->silent = v->silent;
 
     if (!ctx->silent && !lacf->play_restart) {
+        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                      "live: play started successfully for stream '%s'",
+                      ctx->stream ? ctx->stream->name : "unknown");
+        
         ngx_rtmp_send_status(s, "NetStream.Play.Start",
                              "status", "Start live");
         ngx_rtmp_send_sample_access(s);
