@@ -1410,9 +1410,8 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
 
     for (pctx = ctx->stream->ctx; pctx; pctx = pctx->next) {
         if (pctx == ctx || pctx->paused || !pctx->session) {
-            ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
-                           "live: av skipping subscriber (self=%d paused=%d no_session=%d)", 
-                           (pctx == ctx), pctx->paused, (!pctx->session));
+            ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
+                           "live: av skipping subscriber");
             continue;
         }
 
@@ -1587,7 +1586,7 @@ ngx_rtmp_live_av(ngx_rtmp_session_t *s, ngx_rtmp_header_t *h,
             continue;
         }
 
-        ngx_log_debug1(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
+        ngx_log_debug0(NGX_LOG_DEBUG_RTMP, ss->connection->log, 0,
                        "live: av packet sent successfully to subscriber");
 
         cs->timestamp += delta;
